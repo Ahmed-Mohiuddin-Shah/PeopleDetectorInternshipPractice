@@ -1,8 +1,6 @@
 import tkinter as tk
 from functions import CustomCanvas, SelectionMenu, handle_face
-
 from deepface import DeepFace
-
 from PIL import Image, ImageTk
 import cv2
 
@@ -22,18 +20,21 @@ c.execute("""CREATE TABLE IF NOT EXISTS people (
     encodings BLOB
 )""")
 
-def detect_face(cap, detector, customCanvas, window):
+def detect_face(cap, customCanvas, window):
     ret, frame = cap.read()
     width = frame.shape[1]
     height = frame.shape[0]
-    detector.setInputSize((width, height))
+    
+    # detect faces
+    detections = DeepFace.extract_faces(frame, detector_backend='yunet', enforce_detection=False)
 
-    detections = detector.detect(frame)
-    faces = detections[1]
-
-    if faces is not None:
-        for face in faces:
-            frame = handle_face(frame, face)
+    if detections is not None:
+        for detection in detections:
+            if detection["confidence"] < 0.70:
+                continue
+            face = detection['facial_area']
+            confidence = detection['confidence']
+            handle_face(frame, face, confidence)
 
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     frame = customCanvas.update_frame(frame)
@@ -41,20 +42,14 @@ def detect_face(cap, detector, customCanvas, window):
     customCanvas.create_image(0, 0, image=photo, anchor=tk.NW)
     customCanvas.image = photo
 
-    if customCanvas.check_face_in_shapes(faces):
+    if customCanvas.check_face_in_shapes(detections):
         customCanvas.alert.config(text="Face detected in the shape")
     else:
         customCanvas.alert.config(text="Face not detected in the shape")
     
-    window.after(1, detect_face, cap, detector, customCanvas, window)
+    window.after(1, detect_face, cap, customCanvas, window)
 
 def main():
-    scoreThreshold = 0.5
-    nmsThreshold = 0.3
-    backendTarget = 3
-    targetId = 0
-    size = (320, 320)
-
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -76,16 +71,7 @@ def main():
     clear_button = tk.Button(window, text="Clear", font=('Arial', 16) , command=lambda: customCanvas.clear_shapes())
     clear_button.grid(row=1, column=6)
 
-    detector = cv2.FaceDetectorYN.create(
-        model="./face_detection_yunet_2023mar.onnx",
-        config="",
-        input_size=size,
-        score_threshold=scoreThreshold,
-        nms_threshold=nmsThreshold,
-        backend_id=backendTarget,
-        target_id=targetId,
-    )
-    detect_face(cap, detector, customCanvas, window)
+    detect_face(cap, customCanvas, window)
 
     window.mainloop()
     # Release handle to the webcam
