@@ -2,6 +2,54 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import cv2
 import numpy as np
+import sqlite3
+import datetime
+from deepface import DeepFace
+
+def save_face(embedding, conn):
+    c = conn.cursor()
+    # print(embedding)
+    c.execute("INSERT INTO people (encodings) VALUES (?)", (embedding,))
+    conn.commit()
+
+def save_shape(shape, conn):
+    c = conn.cursor()
+    if shape.shape_type == "Rectangle":
+        c.execute("INSERT INTO shapes (start_x, start_y, end_x, end_y, shape) VALUES (?, ?, ?, ?, ?)", (shape.start_x, shape.start_y, shape.end_x, shape.end_y, shape.shape_type))
+    elif shape.shape_type == "Circle":
+        c.execute("INSERT INTO shapes (start_x, start_y, end_x, end_y, shape) VALUES (?, ?, ?, ?, ?)", (shape.start_x, shape.end_y, shape.end_x, shape.end_y, shape.shape_type))
+    elif shape.shape_type == "Triangle":
+        c.execute("INSERT INTO shapes (start_x, start_y, end_x, end_y, shape) VALUES (?, ?, ?, ?, ?)", (shape.start_x, shape.end_y, shape.end_x, shape.end_y, shape.shape_type))
+    elif shape.shape_type == "Random Shape":
+        point_list_string = ""
+        for i in shape.points:
+            point_list_string += f"{i[0]}, {i[1]}, "
+        c.execute("INSERT INTO shapes (points, shape) VALUES (?, ?)", (point_list_string, shape.shape_type))
+    conn.commit()
+
+def save_detected_timestamp(timestamp, person_id, conn):
+    c = conn.cursor()
+    if person_id is None:
+        return
+    c.execute("INSERT INTO detectedtimestamps (timestamp, person_id) VALUES (?, ?)", (timestamp, person_id))
+    conn.commit()
+
+def check_face_exists(embeddings, embedding_new):
+    #check if the new embedding is similar to any of the embeddings in the database
+    for new_embedding in embedding_new:
+        for person_id, embedding in embeddings.items():
+            result = DeepFace.verify(embedding, new_embedding['embedding'], model_name = 'Facenet',distance_metric = 'euclidean')
+            if result["distance"] < 6:
+                # print("Face exists")
+                return person_id, new_embedding
+    return None, embedding_new
+
+def get_id_from_embedding(embeddings, embedding_new):
+    for person_id, embedding in embeddings.items():
+        result = DeepFace.verify(embedding, embedding_new, model_name = 'Facenet',distance_metric = 'euclidean')
+        if result["distance"] < 10:
+            return person_id
+    return None
 
 class SelectionMenu:
     def __init__(self, window, title, options, row, column):
@@ -32,7 +80,7 @@ class SelectionMenu:
         self.string_var.set(self.options[index])
 
 class CustomCanvas:
-    def __init__(self, window, selection_menu, title, width=640, height=480, frame=None):
+    def __init__(self, window, selection_menu, title, width=640, height=480, frame=None, pre_load_shapes={}):
         self.window = window
         self.frame = frame
         self.selection_menu = selection_menu
@@ -53,6 +101,18 @@ class CustomCanvas:
         self.shapes = []
         self.points = []
         self.last_shape = None
+
+        if pre_load_shapes is not None:
+            for shape_id, shape in pre_load_shapes.items():
+                if shape['shape'] == "Rectangle":
+                    self.shapes.append(Rectangle(shape['start_x'], shape['start_y'], shape['end_x'], shape['end_y']))
+                elif shape['shape'] == "Circle":
+                    self.shapes.append(Circle(shape['start_x'], shape['start_y'], shape['end_x'], shape['end_y']))
+                elif shape['shape'] == "Triangle":
+                    self.shapes.append(Triangle(shape['start_x'], shape['start_y'], shape['end_x'], shape['end_y']))
+                elif shape['shape'] == "Random Shape":
+                    points = shape['points']
+                    self.shapes.append(RandomShape(points))
 
     def on_mouse_click(self, event):
         self.start_x = event.x
@@ -99,6 +159,9 @@ class CustomCanvas:
     def save_shape(self):
         if self.last_shape is not None:
             self.shapes.append(self.last_shape)
+            conn = sqlite3.connect('datbase.db')
+            save_shape(self.last_shape, conn)
+            conn.close()
         self.last_shape = None
     
     def run(self):
@@ -119,33 +182,37 @@ class CustomCanvas:
     
     def clear_shapes(self):
         self.shapes = []
+        conn = sqlite3.connect('datbase.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM shapes")
+        conn.commit()
+        conn.close()
         self.last_shape = None
     
     def get_shapes(self):
         return self.shapes
     
-    def check_face_in_shapes(self, faces):
-        if faces is None:
-            return False
-        for face in faces:
-            face = face['facial_area']
-            face = (face['x'], face['y'], face['w'], face['h'])
+    def check_face_in_shapes(self, new_embeddings):
+        detected_faces = []
+
+        if len(new_embeddings) == 0:
+            return detected_faces
+        for new_embedding in new_embeddings:
             for shape in self.shapes:
+                # print(new_embedding)
                 if shape.shape_type == "Rectangle":
-                    if shape.is_face_in_rectangle(face):
-                        return True
+                    if shape.is_face_in_rectangle(new_embedding['location_tuple']):
+                        detected_faces.append(new_embedding)
                 elif shape.shape_type == "Circle":
-                    if shape.is_face_in_circle(face):
-                        return True
+                    if shape.is_face_in_circle(new_embedding['location_tuple']):
+                        detected_faces.append(new_embedding)
                 elif shape.shape_type == "Triangle":
-                    if shape.is_face_in_triangle(face):
-                        return True
+                    if shape.is_face_in_triangle(new_embedding['location_tuple']):
+                        detected_faces.append(new_embedding)
                 elif shape.shape_type == "Random Shape":
-                    if shape.is_face_in_random_shape(face):
-                        return True
-                # return False
-            # return False
-        return False
+                    if shape.is_face_in_random_shape(new_embedding['location_tuple']):
+                        detected_faces.append(new_embedding)
+        return detected_faces
 
 def handle_face(frame: np.ndarray, face: np.ndarray, confidence) -> np.ndarray:
     #     face = {'face': array([[[0.9372549 , 0.96862745, 0.96078431],
@@ -244,7 +311,7 @@ class Rectangle(Shape):
         return cv2.rectangle(frame, (self.start_x, self.start_y), (self.end_x, self.end_y), (0, 255, 0), 2)
     
     def is_face_in_rectangle(self, face):
-        x1, y1, x2, y2, *_ = face
+        x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
         face_circle = Circle(x1, y1, x1+x2, y1+y2)
@@ -275,6 +342,10 @@ class Rectangle(Shape):
 class Circle(Shape):
     def __init__(self, start_x, start_y, end_x, end_y):
         super().__init__("Circle")
+        self.start_x = start_x
+        self.start_y = start_y
+        self.end_x = end_x
+        self.end_y = end_y
         self.center_x = (start_x + end_x) // 2
         self.center_y = (start_y + end_y) // 2
         self.radius = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5 // 2
@@ -290,7 +361,7 @@ class Circle(Shape):
         return cv2.circle(frame, (self.center_x, self.center_y), int(self.radius), (0, 255, 0), 2)
     
     def is_face_in_circle(self, face):
-        x1, y1, x2, y2, *_ = face
+        x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         
         face_circle = Circle(x1, y1, x1+x2, y1+y2)
@@ -341,7 +412,7 @@ class Triangle(Shape):
         return cv2.polylines(frame, [np.array(self.points)], True, (0, 255, 0), 2)
     
     def is_face_in_triangle(self, face):
-        x1, y1, x2, y2, *_ = face
+        x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
         face_circle = Circle(x1, y1, x1+x2, y1+y2)
@@ -378,7 +449,7 @@ class RandomShape(Shape):
         return cv2.polylines(frame, [np.array(self.points)], False, (0, 255, 0), 2)
     
     def is_face_in_random_shape(self, face):
-        x1, y1, x2, y2, *_ = face
+        x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
         face_circle = Circle(x1, y1, x1+x2, y1+y2)
