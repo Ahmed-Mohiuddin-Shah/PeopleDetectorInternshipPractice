@@ -1,13 +1,23 @@
 from deepface import DeepFace
+from mtcnn import MTCNN
 import cv2
 
 # using deepface to detect faces
 def detect_face(frame):
+    embeddings = []
     # detect faces
-    detected_faces = DeepFace.extract_faces(frame, detector_backend='mtcnn')
-    # draw rectangle around the detected faces
-    for face in detected_faces:
-        print(face)
+    faces = DeepFace.extract_faces(frame, detector_backend='yunet', enforce_detection=False)
+
+    for face in faces:
+        # print(face)
+        confidence = face['confidence']
+        if confidence < 0.70:
+            continue
+        detected_face = frame[face['facial_area']['y']:face['facial_area']['y']+face['facial_area']['h'], face['facial_area']['x']:face['facial_area']['x']+face['facial_area']['w']]
+        embedding = DeepFace.represent(detected_face, model_name = 'Facenet', enforce_detection = False)
+        embeddings.append(embedding)
+        print(embeddings)
+        # print(face)
     #     {'face': array([[[0.9372549 , 0.96862745, 0.96078431],
     #     [0.8745098 , 0.91372549, 0.90588235],
     #     [0.81176471, 0.85882353, 0.84705882],

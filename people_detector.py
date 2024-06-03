@@ -7,19 +7,6 @@ import cv2
 #sqlite3
 import sqlite3
 
-# Create a connection to the database
-conn = sqlite3.connect('datbase.db')
-
-# Create a cursor
-c = conn.cursor()
-
-# Create a table
-c.execute("""CREATE TABLE IF NOT EXISTS people (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    encodings BLOB
-)""")
-
 def detect_face(cap, customCanvas, window):
     ret, frame = cap.read()
     width = frame.shape[1]
@@ -49,7 +36,39 @@ def detect_face(cap, customCanvas, window):
     
     window.after(1, detect_face, cap, customCanvas, window)
 
+def init_db():
+        # Create a connection to the database
+    conn = sqlite3.connect('datbase.db')
+
+    # Create a cursor
+    c = conn.cursor()
+
+    # Create a table
+    c.execute("""CREATE TABLE IF NOT EXISTS people (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        encodings BLOB
+    )""")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS shapes (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        shape TEXT
+    )""")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS detectedtimestamps (
+        id INTEGER PRIMARY KEY,
+        timestamp TEXT,
+        person_id INTEGER,
+    )""")
+
+    # Commit the connection
+    conn.commit()
+    conn.close()
+
 def main():
+    init_db()
+
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -77,6 +96,8 @@ def main():
     # Release handle to the webcam
     should_exit = True
     cv2.destroyAllWindows()
+    cap.release()
+    conn.close()
 
 if __name__ == "__main__":
     main()
