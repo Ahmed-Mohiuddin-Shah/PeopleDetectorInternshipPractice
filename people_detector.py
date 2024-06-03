@@ -18,7 +18,7 @@ def detect_face(cap, customCanvas, window, embeddings):
     new_embeddings = []
 
     # detect faces
-    detections = DeepFace.extract_faces(frame, detector_backend='ssd', enforce_detection=False)
+    detections = DeepFace.extract_faces(frame, detector_backend='yunet', enforce_detection=False)
 
     if detections is not None:
         for detection in detections:
@@ -83,11 +83,11 @@ def init_db():
 
     c.execute("""CREATE TABLE IF NOT EXISTS shapes (
         id INTEGER PRIMARY KEY,
-        int start_x,
-        int start_y,
-        int end_x,
-        int end_y,
-        int points,
+        start_x INTEGER,
+        start_y INTEGER,
+        end_x INTEGER,
+        end_y INTEGER,
+        points TEXT,
         shape TEXT
     )""")
 
