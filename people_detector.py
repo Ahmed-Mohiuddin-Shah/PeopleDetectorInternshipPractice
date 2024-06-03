@@ -1,6 +1,8 @@
 import tkinter as tk
 from functions import CustomCanvas, SelectionMenu, handle_face
 
+from deepface import DeepFace
+
 from PIL import Image, ImageTk
 import cv2
 
@@ -83,7 +85,6 @@ def main():
         backend_id=backendTarget,
         target_id=targetId,
     )
-
     detect_face(cap, detector, customCanvas, window)
 
     window.mainloop()
